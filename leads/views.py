@@ -87,7 +87,32 @@ class LeadListView(LoginRequiredMixin, generic.ListView):
     template_name = "leads/lead_list.html"
     context_object_name = "leads"
 
+    def post(self, request, *args, **kwargs):
+        user = self.request.user
+        post = request.POST
+
+        # initial queryset of leads for the entire organisation
+        if user.is_organisor:
+            queryset = Lead.objects.filter(
+                organisation=user.userprofile, 
+                agent__isnull=False
+            )
+            if post and post['category'] != "Any":
+                queryset = queryset.filter(category=post['category'])
+        else:
+            queryset = Lead.objects.filter(
+                organisation=user.agent.organisation, 
+                agent__isnull=False
+            )
+            # filter for the agent that is logged in
+            queryset = queryset.filter(agent__user=user)
+
+            if post and post.category != "Any":
+                queryset = queryset.filter(category=post['category'])
+        return queryset
+
     def get_queryset(self):
+        post = self.request.POST
         user = self.request.user
         # initial queryset of leads for the entire organisation
         if user.is_organisor:
@@ -387,7 +412,8 @@ class LeadCategoryUpdateView(LoginRequiredMixin, generic.UpdateView):
     def form_valid(self, form):
         lead_before_update = self.get_object()
         instance = form.save(commit=False)
-        converted_category = Category.objects.get(name="Converted")
+        converted_category = Category.objects.filter(name="Converted")
+
         if form.cleaned_data["category"] == converted_category:
             # update the date at which this lead was converted
             if lead_before_update.category != converted_category:
@@ -457,48 +483,47 @@ class FollowUpDeleteView(OrganisorAndLoginRequiredMixin, generic.DeleteView):
         return queryset
 
 
+def lead_update(request, pk):
+    lead = Lead.objects.get(id=pk)
+    form = LeadForm()
+    if request.method == "POST":
+        form = LeadForm(request.POST)
+        if form.is_valid():
+            first_name = form.cleaned_data['first_name']
+            last_name = form.cleaned_data['last_name']
+            age = form.cleaned_data['age']
+            lead.first_name = first_name
+            lead.last_name = last_name
+            lead.age = age
+            lead.save()
+            return redirect("/leads")
+    context = {
+        "form": form,
+        "lead": lead
+    }
+    return render(request, "leads/lead_update.html", context)
 
-# def lead_update(request, pk):
-#     lead = Lead.objects.get(id=pk)
-#     form = LeadForm()
-#     if request.method == "POST":
-#         form = LeadForm(request.POST)
-#         if form.is_valid():
-#             first_name = form.cleaned_data['first_name']
-#             last_name = form.cleaned_data['last_name']
-#             age = form.cleaned_data['age']
-#             lead.first_name = first_name
-#             lead.last_name = last_name
-#             lead.age = age
-#             lead.save()
-#             return redirect("/leads")
-    # context = {
-    #     "form": form,
-    #     "lead": lead
-    # }
-#     return render(request, "leads/lead_update.html", context)
 
-
-# def lead_create(request):
-    # form = LeadForm()
-    # if request.method == "POST":
-    #     form = LeadForm(request.POST)
-    #     if form.is_valid():
-    #         first_name = form.cleaned_data['first_name']
-    #         last_name = form.cleaned_data['last_name']
-    #         age = form.cleaned_data['age']
-    #         agent = Agent.objects.first()
-    #         Lead.objects.create(
-    #             first_name=first_name,
-    #             last_name=last_name,
-    #             age=age,
-    #             agent=agent
-    #         )
-    #         return redirect("/leads")
-    # context = {
-    #     "form": form
-    # }
-#     return render(request, "leads/lead_create.html", context)
+def lead_create(request):
+    form = LeadForm()
+    if request.method == "POST":
+        form = LeadForm(request.POST)
+        if form.is_valid():
+            first_name = form.cleaned_data['first_name']
+            last_name = form.cleaned_data['last_name']
+            age = form.cleaned_data['age']
+            agent = Agent.objects.first()
+            Lead.objects.create(
+                first_name=first_name,
+                last_name=last_name,
+                age=age,
+                agent=agent
+            )
+            return redirect("/leads")
+    context = {
+        "form": form
+    }
+    return render(request, "leads/lead_create.html", context)
 
 
 class LeadJsonView(generic.View):
